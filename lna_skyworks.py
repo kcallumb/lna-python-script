@@ -87,23 +87,38 @@ def analyse_lna(lna):
     print(f"Gamma_opt: {gamma_opt} | Mag: {abs(gamma_opt)} | Arg: {np.degrees(np.angle(gamma_opt))}")
     print(f"Optimal source impedance: {50*z_opt} | Normalised: {z_opt}")
 
-def match_gamma_opt(lna, freq):
+def match_gamma_opt(lna, freq, system=50):
     idx_freq = rf.util.find_nearest_index(lna.f, freq)
     
     gamma_opt = lna.g_opt[idx_freq]
     zs = 50 * (1 + gamma_opt) / (1 - gamma_opt)
-    zs_conj = np.conj(zs) # match to the conjugate
-    ys = 1 / zs_conj
-    x_temp = np.sqrt(50/np.real(ys) - 50*50)
-    bl = -1j * x_temp / (50*50 + x_temp*x_temp) - 1j*np.imag(ys)
+    return matched_l_network(np.conj(zs), system, freq) # match to the conjugate
+
+def matched_l_network(source, system, freq):
+    ys = 1 / source
+    x_temp = np.sqrt(system/np.real(ys) - system*system)
+    bl = -1j * x_temp / (system*system + x_temp*x_temp) - 1j*np.imag(ys)
     ind = -1 / (2 * np.pi * freq * np.imag(bl))
-    print(f"inductance: {ind}")
     ys = ys + bl
     zs = 1 / ys
     xc = np.imag(zs)
     cap = 1 / (2 * np.pi * freq * xc)
-    print(f"capacitance: {cap}")
     return ind, cap
+
+def matched_pi_network(lna, intermediate, freq):
+    ind1, cap1 = match_gamma_opt(lna, freq, intermediate)
+    ind2, cap2 = matched_l_network(50, intermediate, freq)
+    cap = cap1 * cap2 / (cap1 + cap2)
+    return ind2, cap, ind1
+
+def pi_network_impedance(inds, cap, indl, freq):
+    xls = 2j * np.pi * freq * inds
+    xll = 2j * np.pi * freq * indl
+    xc = -1j / (2 * np.pi * freq * cap)
+    z1 = (50 * xls) / (50 + xls)
+    z2 = z1 + xc
+    z3 = (z2 * xll) / (z2 + xll)
+    return z3
 
 def calc_matching_network_vals(z1, z2):
     flipped = np.real(z1) < np.real(z2)
@@ -187,6 +202,12 @@ print(series_cap_shunt_l(cap, ind))
 
 # %%
 
+ind1, cap, ind2 = matched_pi_network(lna, 9, 924e6)
+print([ind1, cap, ind2])
+print(pi_network_impedance(ind1, cap, ind2, 924e6))
+
+# %%
+
 lna = rf.Network("GRF207X_208X_Spars_Noise/GRF2070_2080_5V_70mA_25C.s2p")
 analyse_lna(lna)
 print(match(lna))
@@ -197,6 +218,8 @@ plot_load_circles(lna, 5)
 # plot_load_circle_at(lna, 1)
 # print(np.abs(lna.s22.s)[rf.util.find_nearest_index(lna.f, 1)])
 ind, cap = match_gamma_opt(lna, 924e6)
+print(f"inductance: {ind}")
+print(f"capacitance: {cap}")
 print(series_cap_shunt_l(cap, ind))
 
 # %%
