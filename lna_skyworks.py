@@ -87,14 +87,21 @@ def analyse_lna(lna):
     print(f"Gamma_opt: {gamma_opt} | Mag: {abs(gamma_opt)} | Arg: {np.degrees(np.angle(gamma_opt))}")
     print(f"Optimal source impedance: {50*z_opt} | Normalised: {z_opt}")
 
-def match_gamma_opt(lna, freq, system=50):
+def match_gamma_opt_highpass(lna, freq, system=50):
     idx_freq = rf.util.find_nearest_index(lna.f, freq)
     
     gamma_opt = lna.g_opt[idx_freq]
     zs = 50 * (1 + gamma_opt) / (1 - gamma_opt)
-    return matched_l_network(np.conj(zs), system, freq) # match to the conjugate
+    return matched_l_network_highpass(np.conj(zs), system, freq) # match to the conjugate
 
-def matched_l_network(source, system, freq):
+def match_gamma_opt_lowpass(lna, freq, system=50):
+    idx_freq = rf.util.find_nearest_index(lna.f, freq)
+    
+    gamma_opt = lna.g_opt[idx_freq]
+    zs = 50 * (1 + gamma_opt) / (1 - gamma_opt)
+    return matched_l_network_lowpass(np.conj(zs), system, freq) # match to the conjugate
+
+def matched_l_network_highpass(source, system, freq):
     ys = 1 / source
     x_temp = np.sqrt(system/np.real(ys) - system*system)
     bl = -1j * x_temp / (system*system + x_temp*x_temp) - 1j*np.imag(ys)
@@ -105,13 +112,30 @@ def matched_l_network(source, system, freq):
     cap = 1 / (2 * np.pi * freq * xc)
     return ind, cap
 
-def matched_pi_network(lna, intermediate, freq):
-    ind1, cap1 = match_gamma_opt(lna, freq, intermediate)
-    ind2, cap2 = matched_l_network(50, intermediate, freq)
+def matched_l_network_lowpass(source, system, freq):
+    ys = 1 / source
+    x_temp = -np.sqrt(system/np.real(ys) - system*system)
+    bc = -1j * x_temp / (system*system + x_temp*x_temp) - 1j*np.imag(ys)
+    cap = 1 * np.imag(bc) / (2 * np.pi * freq)
+    ys = ys + bc
+    zs = 1 / ys
+    xl = np.imag(zs)
+    ind = -xl / (2 * np.pi * freq)
+    return cap, ind
+
+def matched_pi_network_highpass(lna, intermediate, freq):
+    ind1, cap1 = match_gamma_opt_highpass(lna, freq, intermediate)
+    ind2, cap2 = matched_l_network_highpass(50, intermediate, freq)
     cap = cap1 * cap2 / (cap1 + cap2)
     return ind2, cap, ind1
 
-def pi_network_impedance(inds, cap, indl, freq):
+def matched_pi_network_lowpass(lna, intermediate, freq):
+    capl, ind1 = match_gamma_opt_lowpass(lna, freq, intermediate)
+    caps, ind2 = matched_l_network_lowpass(50, intermediate, freq)
+    ind = ind1 + ind2
+    return caps, ind, capl
+
+def pi_network_impedance_highpass(inds, cap, indl, freq):
     xls = 2j * np.pi * freq * inds
     xll = 2j * np.pi * freq * indl
     xc = -1j / (2 * np.pi * freq * cap)
@@ -119,6 +143,29 @@ def pi_network_impedance(inds, cap, indl, freq):
     z2 = z1 + xc
     z3 = (z2 * xll) / (z2 + xll)
     return z3
+
+def pi_network_impedance_lowpass(caps, ind, capl, freq):
+    xcs = -1j / (2 * np.pi * freq * caps)
+    xcl = -1j / (2 * np.pi * freq * capl)
+    xl = 2j * np.pi * freq * ind
+    z1 = (50 * xcs) / (50 + xcs)
+    z2 = z1 + xl
+    z3 = (z2 * xcl) / (z2 + xcl)
+    return z3
+
+def series_cap_shunt_l(cap, ind):
+    l_react = 2j * np.pi * 924e6 * ind / 50
+    c_react = -1j / (2 * np.pi * 924e6 * cap) / 50
+    lane1 = 1 + c_react
+    total = lane1 * l_react / (lane1 + l_react)
+    return total
+
+def series_l_shunt_cap(ind, cap):
+    l_react = 2j * np.pi * 924e6 * ind / 50
+    c_react = -1j / (2 * np.pi * 924e6 * cap) / 50
+    lane1 = 1 + l_react
+    total = lane1 * c_react / (lane1 + c_react)
+    return total
 
 def calc_matching_network_vals(z1, z2):
     flipped = np.real(z1) < np.real(z2)
@@ -148,13 +195,6 @@ def calc_matching_network_vals(z1, z2):
         return x2_tot, x1_tot
     else:
         return x1_tot, x2_tot
-
-def series_cap_shunt_l(cap, ind):
-    l_react = 2j * np.pi * 924e6 * ind / 50
-    c_react = -1j / (2 * np.pi * 924e6 * cap) / 50
-    lane1 = 1 + c_react
-    total = lane1 * l_react / (lane1 + l_react)
-    return total
 
 def match(lna):
     idx_924mhz = rf.util.find_nearest_index(lna.f, 924.e+6)
@@ -197,14 +237,27 @@ print(np.abs(lna.s11.s)[rf.util.find_nearest_index(lna.f, 9e9)])
 plot_load_circle_at(lna, 0)
 print(np.abs(lna.s22.s)[rf.util.find_nearest_index(lna.f, 0)])
 print(match(lna))
-ind, cap = match_gamma_opt(lna, 924e6)
+ind, cap = match_gamma_opt_highpass(lna, 924e6)
 print(series_cap_shunt_l(cap, ind))
 
 # %%
 
-ind1, cap, ind2 = matched_pi_network(lna, 9, 924e6)
+ind, cap = match_gamma_opt_highpass(lna, 924e6)
+print([ind, cap])
+print(series_cap_shunt_l(cap, ind))
+cap, ind = match_gamma_opt_lowpass(lna, 924e6)
+print([ind, cap])
+print(series_l_shunt_cap(ind, cap))
+
+# %%
+
+ind1, cap, ind2 = matched_pi_network_highpass(lna, 9, 924e6)
 print([ind1, cap, ind2])
-print(pi_network_impedance(ind1, cap, ind2, 924e6))
+print(pi_network_impedance_highpass(ind1, cap, ind2, 924e6))
+
+cap1, ind, cap2 = matched_pi_network_lowpass(lna, 9, 924e6)
+print([cap1, ind, cap2])
+print(pi_network_impedance_lowpass(cap1, ind, cap2, 924e6))
 
 # %%
 
@@ -217,10 +270,11 @@ plot_load_circles(lna, 5)
 # print(np.abs(lna.s11.s)[rf.util.find_nearest_index(lna.f, 9e9)])
 # plot_load_circle_at(lna, 1)
 # print(np.abs(lna.s22.s)[rf.util.find_nearest_index(lna.f, 1)])
-ind, cap = match_gamma_opt(lna, 924e6)
+ind, cap = match_gamma_opt_highpass(lna, 924e6)
 print(f"inductance: {ind}")
 print(f"capacitance: {cap}")
 print(series_cap_shunt_l(cap, ind))
+print(series_l_shunt_cap(ind, ind))
 
 # %%
 
@@ -234,7 +288,7 @@ analyse_lna(lna)
 print(match(lna))
 plot_source_circles(lna, 10)
 plot_load_circles(lna, 10)
-ind, cap = match_gamma_opt(lna, 924e6)
+ind, cap = match_gamma_opt_highpass(lna, 924e6)
 print(series_cap_shunt_l(cap, ind))
 
 # %%
