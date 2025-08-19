@@ -83,9 +83,23 @@ def analyse_lna(lna):
     fmin = lna.nfmin[idx_924mhz]
     z_opt = (1 + gamma_opt) / (1 - gamma_opt)
     plot_noise_circles(lna, rn, gamma_opt, fmin)
-    print(f"Noise Resistance: {rn}")
-    print(f"Gamma_opt: {gamma_opt} | Mag: {abs(gamma_opt)} | Arg: {np.degrees(np.angle(gamma_opt))}")
-    print(f"Optimal source impedance: {50*z_opt} | Normalised: {z_opt}")
+    print(f"---{lna.name}---")
+    print(f"Gain: {lna.s21.s_db[idx_924mhz][0, 0]:.3f}dB")
+    print(f"Isolation: {lna.s12.s_db[idx_924mhz][0, 0]:.3f}dB")
+    print(f"Noise Resistance: {rn}ohms")
+    print(f"Minimum Noise Figure: {lna.nfmin_db[idx_924mhz]}dB")
+    print(f"Gamma_opt: {gamma_opt:.3f} | Mag: {abs(gamma_opt):.3f} | Arg: {np.degrees(np.angle(gamma_opt)):.3f}")
+    print(f"Optimal source impedance: {50*z_opt:.3f} | Normalised: {z_opt:.3f}")
+
+def find_gamma_l(lna, zs, freq):
+    idx_freq = rf.util.find_nearest_index(lna.f, freq)
+    gamma_s = (50 - zs) / (50 + zs)
+    s11 = lna.s11.s[idx_freq][0, 0]
+    s21 = lna.s21.s[idx_freq][0, 0]
+    s12 = lna.s12.s[idx_freq][0, 0]
+    s22 = lna.s22.s[idx_freq][0, 0]
+    gamma_l = np.conj(s22 + (s21 * gamma_s * s12) / (1 - s11 * gamma_s))
+    return gamma_l
 
 def match_gamma_opt_highpass(lna, freq, system=50):
     idx_freq = rf.util.find_nearest_index(lna.f, freq)
@@ -128,6 +142,12 @@ def matched_pi_network_highpass(lna, intermediate, freq):
     ind2, cap2 = matched_l_network_highpass(50, intermediate, freq)
     cap = cap1 * cap2 / (cap1 + cap2)
     return ind2, cap, ind1
+
+def matched_pi_output_highpass(zl, intermediate, freq):
+    ind1, cap1 = matched_l_network_highpass(np.conj(zl), intermediate, freq)
+    ind2, cap2 = matched_l_network_highpass(50, intermediate, freq)
+    cap = cap1 * cap2 / (cap1 + cap2)
+    return ind1, cap, ind2
 
 def matched_pi_network_lowpass(lna, intermediate, freq):
     capl, ind1 = match_gamma_opt_lowpass(lna, freq, intermediate)
@@ -229,7 +249,9 @@ rf.stylely()
 
 lna = rf.Network("SKY67150_wNoise.s2p")
 analyse_lna(lna)
-print(match(lna))
+
+# %%
+
 # plot_source_circles(lna, 100)
 # plot_load_circles(lna, 100)
 plot_source_circle_at(lna, 9e9)
@@ -242,28 +264,12 @@ print(series_cap_shunt_l(cap, ind))
 
 # %%
 
-ind, cap = match_gamma_opt_highpass(lna, 924e6)
-print([ind, cap])
-print(series_cap_shunt_l(cap, ind))
-cap, ind = match_gamma_opt_lowpass(lna, 924e6)
-print([ind, cap])
-print(series_l_shunt_cap(ind, cap))
-
-# %%
-
-ind1, cap, ind2 = matched_pi_network_highpass(lna, 9, 924e6)
-print([ind1, cap, ind2])
-print(pi_network_impedance_highpass(ind1, cap, ind2, 924e6))
-
-cap1, ind, cap2 = matched_pi_network_lowpass(lna, 9, 924e6)
-print([cap1, ind, cap2])
-print(pi_network_impedance_lowpass(cap1, ind, cap2, 924e6))
-
-# %%
-
 lna = rf.Network("GRF207X_208X_Spars_Noise/GRF2070_2080_5V_70mA_25C.s2p")
 analyse_lna(lna)
 print(match(lna))
+
+# %%
+
 plot_source_circles(lna, 5)
 plot_load_circles(lna, 5)
 # plot_source_circle_at(lna, 9e9)
@@ -278,13 +284,11 @@ print(series_l_shunt_cap(ind, ind))
 
 # %%
 
-lna = rf.Network("PMA2-33LN+_S2P/PMA2-33LN+_AP180688_CE7590__CE7600_S_paramaters_U1.s2p")
+lna = rf.Network("QPL9547_SN1_5V_de-embedded_2.s2p")
 analyse_lna(lna)
 
 # %%
 
-lna = rf.Network("QPL9547_SN1_5V_de-embedded_2.s2p")
-analyse_lna(lna)
 print(match(lna))
 plot_source_circles(lna, 10)
 plot_load_circles(lna, 10)
@@ -293,6 +297,47 @@ print(series_cap_shunt_l(cap, ind))
 
 # %%
 
-series_cap_shunt_l(3.3e-12, 12e-9)
+# No noise details in s-params file, no reverse isolation data,
+# Not amazing gain or NF at 900MHz
+lna = rf.Network("PMA2-33LN+_S2P/PMA2-33LN+_AP180688_CE7590__CE7600_S_paramaters_U1.s2p")
+analyse_lna(lna)
+
+# %%
+
+ind, cap = match_gamma_opt_highpass(lna, 924e6)
+print([ind, cap])
+print(series_cap_shunt_l(cap, ind))
+
+# %%
+
+ind1, cap, ind2 = matched_pi_network_highpass(lna, 9, 924e6)
+print([ind1, cap, ind2])
+ind1, ind2 = round(ind1, 10), round(ind2, 10)
+cap = round(cap, 13)
+print([ind1, cap, ind2])
+zs = pi_network_impedance_highpass(ind1, cap, ind2, 924e6)
+print(f"zs: {zs}")
+gamma_l = find_gamma_l(lna, zs, 924e6)
+print(f"gamma_l: {gamma_l}")
+print(f"S22*: {np.conj(lna.s22.s[rf.util.find_nearest_index(lna.f, 924.e+6)])}")
+zl = 50*(1 + gamma_l) / (1 - gamma_l)
+print(f"zl_opt: {zl}")
+ind1, cap, ind2 = matched_pi_output_highpass(zl, 6.5, 924e6)
+print([ind1, cap, ind2])
+ind1, ind2 = round(ind1, 10), round(ind2, 10)
+cap = round(cap, 13)
+print([ind1, cap, ind2])
+zl = pi_network_impedance_highpass(ind2, cap, ind1, 924e6)
+print(f"zl: {zl}")
+print(match(lna)) # obsolete but good to reference against
+
+# %%
+
+xl = 2j * np.pi * 924e6 * 47e-6
+xc1 = -1j / (2 * np.pi * 924e6 * 1e-6)
+xc2 = -1j / (2 * np.pi * 924e6 * 200e-12)
+
+zp = xl + xc1 * xc2 / (xc1 + xc2)
+print (zp)
 
 # %%
