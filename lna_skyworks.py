@@ -26,6 +26,34 @@ def plot_noise_circles(lna, rn, gamma_opt, fmin):
     ax.set_title(lna.name)
     plt.show()
 
+def plot_t_network_input_margins(lna, caps, ind, capl, freq):
+    idx_freq = rf.util.find_nearest_index(lna.f, freq)
+    
+    rn = lna.rn[idx_freq]/50
+    gamma_opt = lna.g_opt[idx_freq]
+    fmin = lna.nfmin[idx_freq]
+    
+    plt.close()
+    ax = plt.axes()
+    for nf_added in [0, 0.01, 0.02, 0.05, 0.1]:
+        nf = 10**(nf_added/10) * fmin
+
+        N = (nf - fmin)*abs(1+gamma_opt)**2/(4*rn)
+        c_n = gamma_opt/(1+N)
+        r_n = 1/(1-N)*np.sqrt(N**2 + N*(1-abs(gamma_opt)**2))
+
+        n = rf.Network(name=str(nf_added), s=calc_circle(c_n, r_n))
+        n.plot_s_smith()
+    ax.set_title(lna.name)
+    
+    for i in range(2):
+        for j in range(2):
+            for k in range(2):
+                # caps_temp = cap + 
+                pass
+    zs = t_network_impedance_highpass(caps, ind, capl, freq)
+    gamma_s = (zs - 50) / (zs + 50)
+
 def plot_source_circles(lna, dec):
     plt.close()
     delta = lna.s11.s*lna.s22.s - lna.s12.s*lna.s21.s
@@ -114,6 +142,7 @@ def match_gamma_opt_conj_highpass(lna, freq, system=50):
     gamma_opt = lna.g_opt[idx_freq]
     zs = 50 * (1 + gamma_opt) / (1 - gamma_opt)
     return matched_l_network_highpass(system, np.conj(zs), freq)
+
 def match_gamma_opt_lowpass(lna, freq, system=50):
     idx_freq = rf.util.find_nearest_index(lna.f, freq)
     
@@ -161,6 +190,12 @@ def matched_pi_output_highpass(zl, intermediate, freq):
     cap = cap1 * cap2 / (cap1 + cap2)
     return ind1, cap, ind2
 
+def matched_t_output_highpass(zl, intermediate, freq):
+    ind1, cap1 = matched_l_network_highpass(intermediate, np.conj(zl), freq)
+    ind2, cap2 = matched_l_network_highpass(intermediate, 50, freq)
+    ind = ind1 * ind2 / (ind1 + ind2)
+    return cap1, ind, cap2
+
 def matched_pi_network_lowpass(lna, intermediate, freq):
     capl, ind1 = match_gamma_opt_lowpass(lna, freq, intermediate)
     caps, ind2 = matched_l_network_lowpass(50, intermediate, freq)
@@ -199,6 +234,13 @@ def series_cap_shunt_l(cap, ind):
     c_react = -1j / (2 * np.pi * 924e6 * cap) / 50
     lane1 = 1 + c_react
     total = lane1 * l_react / (lane1 + l_react)
+    return total
+
+def shunt_l_series_cap(cap, ind):
+    l_react = 2j * np.pi * 924e6 * ind / 50
+    c_react = -1j / (2 * np.pi * 924e6 * cap) / 50
+    par = 1 * l_react / (1 + l_react)
+    total = par + c_react
     return total
 
 def series_l_shunt_cap(ind, cap):
@@ -374,12 +416,163 @@ print([ind, ind2, cap, cap2])
 
 # %%
 
+ind, cap = match_gamma_opt_highpass(lna, 924e6, 50)
+print([ind, cap])
+ind, cap = round(ind, 9), round(cap, 13)
+print([ind, cap])
+zs = 50*series_cap_shunt_l(cap, ind)
+print(zs)
 cap1, ind, cap2 = matched_t_network_highpass(lna, 150, 924e6)
 cap1, cap2 = round(cap1, 13), round(cap2, 13)
 ind = round(ind, 10)
 print([cap1, ind, cap2])
-zs = t_network_impedance_highpass(cap1, ind, cap2, 924e6)
+zs = t_network_impedance_highpass(cap2, ind, cap1, 924e6)
 print(zs)
+
+# %%
+
+ind, cap = match_gamma_opt_highpass(lna, 924e6, 50)
+print([ind, cap])
+ind, cap = round(ind, 9), round(cap, 13)
+print([ind, cap])
+zs = 50*series_cap_shunt_l(cap, ind)
+print(zs)
+gamma_l = find_gamma_l(lna, zs, 924e6)
+print(f"gamma_l: {gamma_l}")
+print(f"S22*: {np.conj(lna.s22.s[rf.util.find_nearest_index(lna.f, 924.e+6)])}")
+zl = 50*(1 + gamma_l) / (1 - gamma_l)
+print(zl)
+cap1, ind2, cap2 = matched_t_output_highpass(zl, 150, 924e6)
+print([cap1, ind2, cap2])
+cap1, ind2, cap2 = round(cap1, 13), round(ind2, 9), round(cap2, 13)
+print([cap1, ind2, cap2])
+zl = t_network_impedance_highpass(cap2, ind2, cap1, 924e6)
+print(zl)
+zl = t_network_impedance_highpass(cap2+2e-13, ind2, cap1, 924e6)
+print(zl)
+zl = t_network_impedance_highpass(cap2-2e-13, ind2, cap1, 924e6)
+print(zl)
+zl = t_network_impedance_highpass(cap2, ind2+2e-10, cap1, 924e6)
+print(zl)
+zl = t_network_impedance_highpass(cap2, ind2, cap1+2e-13, 924e6)
+print(zl)
+zl = t_network_impedance_highpass(cap2, ind2, cap1-2e-13, 924e6)
+print(zl)
+
+# %%
+
+zs = 50 + -1j / (2 * np.pi * 924e6 * 68e-12)
+print(zs)
+gamma_l = find_gamma_l(lna, zs, 924e6)
+print(f"gamma_l: {gamma_l}")
+print(f"S22*: {np.conj(lna.s22.s[rf.util.find_nearest_index(lna.f, 924.e+6)])}")
+zl = 50*(1 + gamma_l) / (1 - gamma_l)
+print(zl)
+cap1, ind2, cap2 = matched_t_output_highpass(zl, 150, 924e6)
+print([cap1, ind2, cap2])
+cap1, ind2, cap2 = round(cap1, 13), round(ind2, 9), round(cap2, 13)
+print([cap1, ind2, cap2])
+zl = t_network_impedance_highpass(cap2, ind2, cap1, 924e6)
+print(zl)
+zl = t_network_impedance_highpass(cap2+2e-13, ind2, cap1, 924e6)
+print(zl)
+zl = t_network_impedance_highpass(cap2-2e-13, ind2, cap1, 924e6)
+print(zl)
+zl = t_network_impedance_highpass(cap2, ind2+2e-10, cap1, 924e6)
+print(zl)
+zl = t_network_impedance_highpass(cap2, ind2, cap1+2e-13, 924e6)
+print(zl)
+zl = t_network_impedance_highpass(cap2, ind2, cap1-2e-13, 924e6)
+print(zl)
+print([cap1, ind2, cap2])
+
+# %%
+
+ind, cap = match_gamma_opt_highpass(lna, 924e6, 50)
+print([ind, cap])
+ind, cap = round(ind, 9), round(cap, 13)
+print([ind, cap])
+zs = 50*series_cap_shunt_l(cap, ind)
+print(f"zs: {zs}")
+zs = zs + -1j / (2 * np.pi * 924e6 * 68e-12)
+print(f"zs: {zs}")
+zs = zs / 50
+print(f"zs: {zs}")
+gamma_l = find_gamma_l(lna, zs, 924e6)
+print(f"gamma_l: {gamma_l}")
+print(f"S22*: {np.conj(lna.s22.s[rf.util.find_nearest_index(lna.f, 924.e+6)])}")
+zl = 50*(1 + gamma_l) / (1 - gamma_l)
+print(zl)
+cap1, ind2, cap2 = matched_t_output_highpass(zl, 170, 924e6)
+print([cap1, ind2, cap2])
+cap1, ind2, cap2 = round(cap1, 13), round(ind2, 9), round(cap2, 13)
+print([cap1, ind2, cap2])
+zl = t_network_impedance_highpass(cap2, ind2, cap1, 924e6)
+print(zl)
+zl = t_network_impedance_highpass(cap2+2e-13, ind2, cap1, 924e6)
+print(zl)
+zl = t_network_impedance_highpass(cap2-2e-13, ind2, cap1, 924e6)
+print(zl)
+zl = t_network_impedance_highpass(cap2, ind2+2e-10, cap1, 924e6)
+print(zl)
+zl = t_network_impedance_highpass(cap2, ind2, cap1+2e-13, 924e6)
+print(zl)
+zl = t_network_impedance_highpass(cap2, ind2, cap1-2e-13, 924e6)
+print(zl)
+print([cap1, ind2, cap2])
+
+# %%
+
+# ind, cap = match_gamma_opt_highpass(lna, 924e6, 50)
+idx_freq = rf.util.find_nearest_index(lna.f, 924e6)
+gamma_opt = lna.g_opt[idx_freq]
+zs = 50 * (1 + gamma_opt) / (1 - gamma_opt)
+zs += 15j
+ind, cap = matched_l_network_highpass(np.conj(zs), 50, 924e6) # match to the conjugate
+print([ind, cap])
+ind, cap = round(ind, 9), round(cap, 13)
+print([ind, cap])
+zs = 50*series_cap_shunt_l(cap, ind)
+print(f"zs: {zs}")
+gamma_l = find_gamma_l(lna, zs, 924e6)
+print(f"gamma_l: {gamma_l}")
+print(f"S22*: {np.conj(lna.s22.s[rf.util.find_nearest_index(lna.f, 924.e+6)])}")
+zl = 50*(1 + gamma_l) / (1 - gamma_l)
+print(zl)
+ind2, cap2 = matched_l_network_highpass(zl, 50, 924e6)
+print([ind2, cap2])
+ind2, cap2 = round(ind2, 9), round(cap2, 13)
+print([ind2, cap2])
+print(50*series_cap_shunt_l(cap2, ind2))
+print([ind, ind2, cap, cap2])
+
+# %%
+
+zs = 50 + -1j / (2 * np.pi * 924e6 * 68e-12)
+print(f"zs: {zs}")
+gamma_l = find_gamma_l(lna, zs, 924e6)
+print(f"gamma_l: {gamma_l}")
+print(f"S22*: {np.conj(lna.s22.s[rf.util.find_nearest_index(lna.f, 924.e+6)])}")
+zl = 50*(1 + gamma_l) / (1 - gamma_l)
+print(f"zl_opt: {zl}")
+ind3, cap2, ind4 = matched_pi_output_highpass(zl, 10, 924e6)
+print([ind3, cap2, ind4])
+ind3, ind4 = round(ind3, 10), round(ind4, 10)
+cap2 = round(cap2, 13)
+print([ind3, cap2, ind4])
+zl = pi_network_impedance_highpass(ind4+2e-10, cap2, ind3, 924e6)
+print(f"zl: {zl}")
+zl = pi_network_impedance_highpass(ind4, cap2+2e-13, ind3, 924e6)
+print(f"zl: {zl}")
+zl = pi_network_impedance_highpass(ind4, cap2, ind3+2e-10, 924e6)
+print(f"zl: {zl}")
+zl = pi_network_impedance_highpass(ind4-2e-10, cap2, ind3, 924e6)
+print(f"zl: {zl}")
+zl = pi_network_impedance_highpass(ind4, cap2-2e-13, ind3, 924e6)
+print(f"zl: {zl}")
+zl = pi_network_impedance_highpass(ind4, cap2, ind3-2e-10, 924e6)
+print(f"zl: {zl}")
+print([ind3, ind4, cap2])
 
 # %%
 
@@ -389,5 +582,93 @@ xc2 = -1j / (2 * np.pi * 924e6 * 200e-12)
 
 zp = xl + xc1 * xc2 / (xc1 + xc2)
 print (zp)
+
+# %%
+
+dc_block = rf.Network("Tests/DUT-Single-68pF-600MHz-1.2GHz.s2p")
+freq = rf.Frequency.from_f(dc_block.f)
+s_params = s = np.zeros((len(freq), 2, 2), dtype=complex)
+s_params[:,0,0] = dc_block.s11.s[0, 0]
+s_params[:,0,1] = dc_block.s21.s[0, 0]
+s_params[:,1,0] = dc_block.s21.s[0, 0]
+s_params[:,1,1] = dc_block.s11.s[0, 0]
+dc_block = rf.Network(frequency=freq, s=s_params, name="DC block")
+gamma = dc_block.s11.s[rf.util.find_nearest_index(dc_block.f, 924.e+6)][0, 0]
+print(gamma)
+z = (1 + gamma) / (gamma - 1)
+print(z)
+print(50*series_cap_shunt_l(4e-12, 12e-9) + z)
+
+# %%
+
+# ground = rf.Circuit.Ground(lna.f, "ground")
+# port_lna = rf.Circuit.Port(lna.f, name = 'port_lna', z0=50)
+# port_source = rf.Circuit.Port(lna.f, name = 'port_source', z0=50)
+cap = rf.Network("Passives/GJM1555C1H5R3WB01_DC0V_25degC_series.s2p").interpolate(lna.f)
+ind = rf.Network("Passives/LQW15AN16NG80_shunt.s2p").interpolate(lna.f)
+media = rf.DefinedGammaZ0(lna.f, z0=50)
+res = media.resistor(R=50)
+# connections = [
+#     [(ind, 1), (ground, 0)],
+#     [(port_lna, 0), (ind, 0), (cap, 0)]
+# ]
+print(lna)
+
+combined_input = ind ** cap ** res
+print(combined_input)
+combined_input.plot_s_db()
+idx_924mhz = rf.util.find_nearest_index(lna.f, 924.e+6)
+s11 = lna.s11.s[idx_924mhz][0, 0]
+print(f"S11: {s11:.3f}dB")
+z = lna.z[idx_924mhz][0, 0]
+print(f"Z: {z:.3f}dB")
+
+# %%
+
+matcher = rf.Network("Tests/DUT-L-16nH-5.3pF-600MHz-1.2GHz.s2p")
+matcher.plot_s_smith()
+dc_block = rf.Network("Tests/DUT-Single-68pF-600MHz-1.2GHz.s2p")
+freq = rf.Frequency.from_f(dc_block.f)
+s_params = s = np.zeros((len(freq), 2, 2), dtype=complex)
+s_params[:,0,0] = dc_block.s11.s[:, 0].T[0]
+s_params[:,0,1] = dc_block.s21.s[:, 0].T[0]
+s_params[:,1,0] = dc_block.s21.s[:, 0].T[0]
+s_params[:,1,1] = dc_block.s11.s[:, 0].T[0]
+dc_block = rf.Network(frequency=freq, s=s_params, name="DC block")
+print(f"Z: {matcher.z[idx_924mhz][0, 0]}")
+print(f"Z: {dc_block.z[idx_924mhz][0, 0]}")
+#%%
+combined = dc_block ** matcher
+idx_924mhz = rf.util.find_nearest_index(matcher.f, 924.e+6)
+print(f"Z: {matcher.z[idx_924mhz][0, 0]}")
+print(f"Z: {dc_block.z[idx_924mhz][0, 0]}")
+print(f"Z: {combined.z[idx_924mhz][0, 0]}")
+print(f"S11: {matcher.s11.s[idx_924mhz][0, 0]}")
+print(f"S11: {dc_block.s11.s[idx_924mhz][0, 0]}")
+print(f"S11: {combined.s11.s[idx_924mhz][0, 0]}")
+
+idx_freq = rf.util.find_nearest_index(lna.f, 924.e+6)
+rn = lna.rn[idx_freq]/50
+gamma_opt = lna.g_opt[idx_freq]
+fmin = lna.nfmin[idx_freq]
+
+plt.close()
+ax = plt.axes()
+for nf_added in [0, 0.01, 0.02, 0.05]:
+    nf = 10**(nf_added/10) * fmin
+
+    N = (nf - fmin)*abs(1+gamma_opt)**2/(4*rn)
+    c_n = gamma_opt/(1+N)
+    r_n = 1/(1-N)*np.sqrt(N**2 + N*(1-abs(gamma_opt)**2))
+
+    n = rf.Network(name=str(nf_added), s=calc_circle(c_n, r_n))
+    n.plot_s_smith()
+ax.set_title(lna.name)
+matcher.s11[idx_924mhz-5:idx_924mhz+5].plot_s_smith()
+# dc_block.s11[idx_924mhz-5:idx_924mhz+5].plot_s_smith()
+combined.s11[idx_924mhz-5:idx_924mhz+5].plot_s_smith()
+
+gamma = combined.s11.z[idx_924mhz]
+print(gamma)
 
 # %%
