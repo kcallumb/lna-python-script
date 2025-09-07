@@ -548,18 +548,19 @@ print([ind, ind2, cap, cap2])
 
 # %%
 
-zs = 50 + -1j / (2 * np.pi * 924e6 * 68e-12)
+zs = 50 + -2j / (2 * np.pi * 924e6 * 68e-12)
 print(f"zs: {zs}")
 gamma_l = find_gamma_l(lna, zs, 924e6)
 print(f"gamma_l: {gamma_l}")
 print(f"S22*: {np.conj(lna.s22.s[rf.util.find_nearest_index(lna.f, 924.e+6)])}")
 zl = 50*(1 + gamma_l) / (1 - gamma_l)
 print(f"zl_opt: {zl}")
-ind3, cap2, ind4 = matched_pi_output_highpass(zl, 10, 924e6)
-print([ind3, cap2, ind4])
-ind3, ind4 = round(ind3, 10), round(ind4, 10)
-cap2 = round(cap2, 13)
-print([ind3, cap2, ind4])
+ind2, cap2 = matched_l_network_highpass(np.conj(zl + 15), 50, 924e6)
+print([ind2, cap2])
+ind2, cap2 = round(ind2, 9), round(cap2, 13)
+print([ind2, cap2])
+print(50*series_cap_shunt_l(cap2, ind2))
+print([ind, ind2, cap, cap2])
 zl = pi_network_impedance_highpass(ind4+2e-10, cap2, ind3, 924e6)
 print(f"zl: {zl}")
 zl = pi_network_impedance_highpass(ind4, cap2+2e-13, ind3, 924e6)
@@ -585,19 +586,11 @@ print (zp)
 
 # %%
 
-dc_block = rf.Network("Tests/DUT-Single-68pF-600MHz-1.2GHz.s2p")
-freq = rf.Frequency.from_f(dc_block.f)
-s_params = s = np.zeros((len(freq), 2, 2), dtype=complex)
-s_params[:,0,0] = dc_block.s11.s[0, 0]
-s_params[:,0,1] = dc_block.s21.s[0, 0]
-s_params[:,1,0] = dc_block.s21.s[0, 0]
-s_params[:,1,1] = dc_block.s11.s[0, 0]
-dc_block = rf.Network(frequency=freq, s=s_params, name="DC block")
-gamma = dc_block.s11.s[rf.util.find_nearest_index(dc_block.f, 924.e+6)][0, 0]
-print(gamma)
-z = (1 + gamma) / (gamma - 1)
+dc_block = rf.Network("Tests/DUT-Single-Merged-68pF-600MHz-1.2GHz.s2p")
+z = dc_block.s11.z[rf.util.find_nearest_index(dc_block.f, 924.e+6)][0, 0]
 print(z)
-print(50*series_cap_shunt_l(4e-12, 12e-9) + z)
+print(50*series_cap_shunt_l(3.3e-12, 12e-9))
+print(50*series_cap_shunt_l(3.6e-12, 12e-9))
 
 # %%
 
@@ -625,27 +618,24 @@ print(f"Z: {z:.3f}dB")
 
 # %%
 
-matcher = rf.Network("Tests/DUT-L-16nH-5.3pF-600MHz-1.2GHz.s2p")
-matcher.plot_s_smith()
-dc_block = rf.Network("Tests/DUT-Single-68pF-600MHz-1.2GHz.s2p")
-freq = rf.Frequency.from_f(dc_block.f)
-s_params = s = np.zeros((len(freq), 2, 2), dtype=complex)
-s_params[:,0,0] = dc_block.s11.s[:, 0].T[0]
-s_params[:,0,1] = dc_block.s21.s[:, 0].T[0]
-s_params[:,1,0] = dc_block.s21.s[:, 0].T[0]
-s_params[:,1,1] = dc_block.s11.s[:, 0].T[0]
-dc_block = rf.Network(frequency=freq, s=s_params, name="DC block")
-print(f"Z: {matcher.z[idx_924mhz][0, 0]}")
-print(f"Z: {dc_block.z[idx_924mhz][0, 0]}")
-#%%
-combined = dc_block ** matcher
+matcher = rf.Network("Tests/DUT-L-Merged-16nH-5.3pF-600MHz-1.2GHz.s2p")
+dc_block = rf.Network("Tests/DUT-Single-Merged-68pF-600MHz-1.2GHz.s2p")
+print(matcher)
+dc_block.plot_s_smith()
 idx_924mhz = rf.util.find_nearest_index(matcher.f, 924.e+6)
-print(f"Z: {matcher.z[idx_924mhz][0, 0]}")
-print(f"Z: {dc_block.z[idx_924mhz][0, 0]}")
-print(f"Z: {combined.z[idx_924mhz][0, 0]}")
+print(f"Z: {matcher.s11.z[idx_924mhz][0, 0]}")
+print(f"Z: {dc_block.s11.z[idx_924mhz][0, 0]}")
+#%%
+combined = dc_block ** dc_block
+print(f"Z: {matcher.s11.z[idx_924mhz][0, 0]}")
+print(f"Z: {dc_block.s11.z[idx_924mhz][0, 0]}")
+print(f"Z: {combined.s11.z[idx_924mhz][0, 0]}")
 print(f"S11: {matcher.s11.s[idx_924mhz][0, 0]}")
 print(f"S11: {dc_block.s11.s[idx_924mhz][0, 0]}")
 print(f"S11: {combined.s11.s[idx_924mhz][0, 0]}")
+print(f"Loss: {matcher.s21.s_db[idx_924mhz][0, 0]}")
+print(f"Loss: {dc_block.s21.s_db[idx_924mhz][0, 0]}")
+print(f"Loss: {combined.s21.s_db[idx_924mhz][0, 0]}")
 
 idx_freq = rf.util.find_nearest_index(lna.f, 924.e+6)
 rn = lna.rn[idx_freq]/50
@@ -654,7 +644,7 @@ fmin = lna.nfmin[idx_freq]
 
 plt.close()
 ax = plt.axes()
-for nf_added in [0, 0.01, 0.02, 0.05]:
+for nf_added in [0.01, 0.02, 0.05]:
     nf = 10**(nf_added/10) * fmin
 
     N = (nf - fmin)*abs(1+gamma_opt)**2/(4*rn)
@@ -665,7 +655,7 @@ for nf_added in [0, 0.01, 0.02, 0.05]:
     n.plot_s_smith()
 ax.set_title(lna.name)
 matcher.s11[idx_924mhz-5:idx_924mhz+5].plot_s_smith()
-# dc_block.s11[idx_924mhz-5:idx_924mhz+5].plot_s_smith()
+dc_block.s11[idx_924mhz-5:idx_924mhz+5].plot_s_smith()
 combined.s11[idx_924mhz-5:idx_924mhz+5].plot_s_smith()
 
 gamma = combined.s11.z[idx_924mhz]
